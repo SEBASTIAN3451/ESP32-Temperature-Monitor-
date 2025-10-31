@@ -27,6 +27,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
+#include <ESPmDNS.h>
+#include <time.h>
 #include <DHT.h>
 #include <ArduinoJson.h>
 
@@ -48,11 +50,13 @@ const unsigned long SENSOR_READ_INTERVAL = 2000;
 
 DHT dht(DHT_PIN, DHT_TYPE);
 AsyncWebServer server(80);
+AsyncEventSource events("/events");
 
 // Variables para almacenar lecturas
 float temperature = 0.0;
 float humidity = 0.0;
 unsigned long lastReadTime = 0;
+time_t lastNtpSync = 0;
 
 // ==================== PÁGINA WEB ====================
 
@@ -211,28 +215,32 @@ const char index_html[] PROGMEM = R"rawliteral(
     </div>
     
     <script>
-        function updateData() {
-            fetch('/api/sensors')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('temperature').textContent = data.temperature.toFixed(1);
-                    document.getElementById('humidity').textContent = data.humidity.toFixed(1);
-                    
-                    const now = new Date();
-                    const timeStr = now.toLocaleTimeString('es-MX');
-                    document.getElementById('lastUpdate').textContent = `Última actualización: ${timeStr}`;
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    document.getElementById('lastUpdate').textContent = 'Error de conexión';
-                });
+        const lastUpdate = document.getElementById('lastUpdate');
+        function applyData(data){
+            document.getElementById('temperature').textContent = Number(data.temperature).toFixed(1);
+            document.getElementById('humidity').textContent = Number(data.humidity).toFixed(1);
+            const ts = data.time_iso || new Date().toISOString();
+            const t = new Date(ts);
+            lastUpdate.textContent = 'Última actualización: ' + t.toLocaleTimeString('es-ES');
         }
-        
-        // Actualizar cada 2 segundos
-        setInterval(updateData, 2000);
-        
-        // Primera actualización inmediata
-        updateData();
+
+        // Live updates via SSE with graceful fallback
+        try {
+            const es = new EventSource('/events');
+            es.addEventListener('update', (ev)=>{
+                try { applyData(JSON.parse(ev.data)); } catch(e){}
+            });
+            es.onerror = ()=>{ /* fallback below will keep trying */ };
+        } catch(e) {}
+
+        async function poll(){
+            try{
+                const r = await fetch('/api/sensors');
+                applyData(await r.json());
+            }catch(e){ lastUpdate.textContent = 'Error de conexión'; }
+        }
+        setInterval(poll, 5000);
+        poll();
     </script>
 </body>
 </html>
@@ -266,6 +274,19 @@ void setupWiFi() {
         Serial.print(WiFi.RSSI());
         Serial.println(" dBm\n");
         digitalWrite(LED_PIN, HIGH); // LED encendido = conectado
+
+        // mDNS
+        if (MDNS.begin("esp32-temp")) {
+            Serial.println("✓ mDNS: http://esp32-temp.local");
+            MDNS.addService("http", "tcp", 80);
+        } else {
+            Serial.println("✗ mDNS no disponible");
+        }
+
+        // NTP (UTC)
+        configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+        struct tm tm_info; time_t now = time(nullptr);
+        if (now > 100000) { lastNtpSync = now; }
     } else {
         Serial.println("\n✗ Error: No se pudo conectar al WiFi");
         Serial.println("Verifica SSID y contraseña en el código\n");
@@ -285,6 +306,13 @@ void setupWebServer() {
         doc["temperature"] = temperature;
         doc["humidity"] = humidity;
         doc["timestamp"] = millis();
+        time_t now = time(nullptr);
+        if (now > 100000) {
+            char buf[32];
+            struct tm *t = gmtime(&now);
+            strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", t);
+            doc["time_iso"] = buf;
+        }
         doc["unit_temp"] = "°C";
         doc["unit_humidity"] = "%";
         
@@ -309,6 +337,33 @@ void setupWebServer() {
         
         request->send(200, "application/json", response);
     });
+
+    // Health check
+    server.on("/healthz", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/plain", "ok");
+    });
+
+    // Prometheus metrics (simple)
+    server.on("/metrics", HTTP_GET, [](AsyncWebServerRequest *request){
+        String m;
+        m += "esp32_temperature_celsius "; m += String(temperature, 2); m += "\n";
+        m += "esp32_humidity_percent "; m += String(humidity, 2); m += "\n";
+        request->send(200, "text/plain; version=0.0.4", m);
+    });
+
+    // SSE events
+    events.onConnect([](AsyncEventSourceClient *client){
+        if(client->lastId()) {
+            Serial.printf("[SSE] Reconexion, id: %u\n", client->lastId());
+        }
+        // Send an initial snapshot
+        StaticJsonDocument<200> doc;
+        doc["temperature"] = temperature;
+        doc["humidity"] = humidity;
+        String payload; serializeJson(doc, payload);
+        client->send(payload.c_str(), "update", millis());
+    });
+    server.addHandler(&events);
     
     // Manejo de rutas no encontradas
     server.onNotFound([](AsyncWebServerRequest *request){
@@ -334,6 +389,20 @@ void readSensors() {
             humidity = newHumidity;
             
             Serial.printf("🌡️  Temp: %.1f°C | 💧 Humedad: %.1f%%\n", temperature, humidity);
+
+            // Emit SSE update
+            StaticJsonDocument<200> doc;
+            doc["temperature"] = temperature;
+            doc["humidity"] = humidity;
+            time_t now = time(nullptr);
+            if (now > 100000) {
+                char buf[32];
+                struct tm *t = gmtime(&now);
+                strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", t);
+                doc["time_iso"] = buf;
+            }
+            String payload; serializeJson(doc, payload);
+            events.send(payload.c_str(), "update", millis());
         } else {
             Serial.println("⚠️  Error leyendo sensor DHT22");
         }
@@ -359,9 +428,13 @@ void setup() {
         Serial.println("📱 Abre tu navegador y ve a:");
         Serial.print("   http://");
         Serial.println(WiFi.localIP());
+        Serial.println("   http://esp32-temp.local (mDNS)");
         Serial.println("\n🔗 API Endpoints disponibles:");
         Serial.println("   /api/sensors  - Datos de temperatura y humedad");
         Serial.println("   /api/status   - Estado del sistema\n");
+        Serial.println("   /events       - Server-Sent Events (tiempo real)");
+        Serial.println("   /metrics      - Prometheus metrics");
+        Serial.println("   /healthz      - Health check\n");
     }
 }
 

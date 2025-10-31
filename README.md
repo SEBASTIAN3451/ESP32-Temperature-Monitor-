@@ -15,7 +15,9 @@ Sistema IoT profesional para monitoreo de temperatura y humedad en tiempo real u
 - 🌡️ **Monitoreo en Tiempo Real**: Lectura continua de temperatura y humedad
 - 📱 **Dashboard Web Responsive**: Interfaz moderna y adaptable a cualquier dispositivo
 - 🔌 **API REST**: Endpoints JSON para integración con otros sistemas
-- 💾 **Actualización Automática**: Dashboard se actualiza cada 2 segundos
+- ⚡ **Tiempo Real (SSE)**: Actualizaciones instantáneas con Server‑Sent Events
+- 🌐 **mDNS**: Accede con `http://esp32-temp.local`
+- 🕒 **NTP**: Timestamps en UTC (`time_iso`) vía NTP
 - 🔔 **Indicador de Estado**: LED integrado muestra estado de conexión WiFi
 - ⚡ **Bajo Consumo**: Optimizado para eficiencia energética
 - 🎨 **Diseño Moderno**: UI con gradientes y animaciones suaves
@@ -56,8 +58,8 @@ GPIO 4  <--->   DATA
 
 1. **Clonar el repositorio**
    ```bash
-   git clone https://github.com/TU_USUARIO/ESP32_Temperature_Monitor.git
-   cd ESP32_Temperature_Monitor
+   git clone https://github.com/SEBASTIAN3451/ESP32-Temperature-Monitor-.git
+   cd ESP32-Temperature-Monitor-
    ```
 
 2. **Abrir en VS Code**
@@ -99,6 +101,7 @@ Obtiene los datos actuales de temperatura y humedad
   "temperature": 23.5,
   "humidity": 65.2,
   "timestamp": 12345678,
+   "time_iso": "2025-10-31T20:15:10Z",
   "unit_temp": "°C",
   "unit_humidity": "%"
 }
@@ -117,6 +120,15 @@ Obtiene el estado del sistema
   "free_heap": 256000,
   "chip_model": "ESP32-D0WDQ6"
 }
+
+#### `GET /events`
+Server‑Sent Events con actualizaciones en tiempo real (evento "update").
+
+#### `GET /metrics`
+Métricas en formato Prometheus (`esp32_temperature_celsius`, `esp32_humidity_percent`).
+
+#### `GET /healthz`
+Health check simple.
 ```
 
 ## 📊 Características Técnicas
@@ -201,17 +213,17 @@ Este proyecto está bajo la Licencia MIT. Ver archivo `LICENSE` para más detall
 
 **Sebastian Lara**
 
-- GitHub: [@TU_USUARIO](https://github.com/TU_USUARIO)
+- GitHub: [@SEBASTIAN3451](https://github.com/SEBASTIAN3451)
 - LinkedIn: [Tu LinkedIn](https://linkedin.com/in/tu-perfil)
 
 ## 🌟 Proyectos Relacionados
 
-- [ESP32 Weather Station](https://github.com/TU_USUARIO/otro-proyecto)
-- [IoT Smart Home](https://github.com/TU_USUARIO/otro-proyecto)
+- [ESP32 Smart Irrigation](https://github.com/SEBASTIAN3451/ESP32-Smart-Irrigation-)
+- [ESP32 Weather Station](https://github.com/SEBASTIAN3451/ESP32-Weather-Station)
 
 ## 📞 Soporte
 
-Si tienes alguna pregunta o problema, abre un [Issue](https://github.com/TU_USUARIO/ESP32_Temperature_Monitor/issues).
+Si tienes alguna pregunta o problema, abre un [Issue](https://github.com/SEBASTIAN3451/ESP32-Temperature-Monitor-/issues).
 
 ---
 
