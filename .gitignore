@@ -1,0 +1,25 @@
+# Configuración WiFi
+src/config.h
+
+# Archivos de compilación
+.pio/
+.vscode/
+*.pyc
+__pycache__/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+*~
+.idea/
+
+# Build
+build/
+dist/
+*.hex
+*.bin
+*.elf
